@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Comparativo de Preços</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.21/lodash.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-size: 2.5em;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.2);
+        }
+        
+        .filters {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .filter-group {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .filter-item {
+            flex: 1;
+            min-width: 200px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        select, input {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        select:focus, input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            transition: transform 0.3s;
+        }
+        
+        .card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .kpi-card {
+            text-align: center;
+        }
+        
+        .kpi-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        
+        .kpi-label {
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .seven-better { color: #22c55e; }
+        .market-better { color: #ef4444; }
+        .neutral { color: #3b82f6; }
+        .economia { color: #10b981; }
+        
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-top: 20px;
+        }
+        
+        .table-container {
+            max-height: 500px;
+            overflow-y: auto;
+            margin-top: 20px;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        th {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px;
+            text-align: left;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        
+        td {
+            padding: 10px;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        tr:hover {
+            background: #f9fafb;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .badge-seven {
+            background: #dcfce7;
+            color: #15803d;
+        }
+        
+        .badge-market {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: white;
+            font-size: 1.2em;
+        }
+        
+        .highlight-economia {
+            background: #f0fdf4;
+            font-weight: bold;
+            color: #15803d;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📊 Comparativo de Preços: Market4You vs Seven</h1>
+        
+        <div class="filters">
+            <div class="filter-group">
+                <div class="filter-item">
+                    <label for="categoryFilter">Filtrar por Categoria:</label>
+                    <select id="categoryFilter">
+                        <option value="">Todas as Categorias</option>
+                    </select>
+                </div>
+                <div class="filter-item">
+                    <label for="searchFilter">Buscar Produto:</label>
+                    <input type="text" id="searchFilter" placeholder="Digite o nome do produto...">
+                </div>
+                <div class="filter-item">
+                    <label for="priceFilter">Mostrar apenas:</label>
+                    <select id="priceFilter">
+                        <option value="">Todos os produtos</option>
+                        <option value="seven">Mais baratos no Seven</option>
+                        <option value="market">Mais baratos no Market4You</option>
+                        <option value="igual">Mesmo preço</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+        
+        <div class="dashboard-grid">
+            <div class="card kpi-card">
+                <div class="kpi-label">Total de Produtos</div>
+                <div class="kpi-value neutral" id="totalProdutos">0</div>
+            </div>
+            <div class="card kpi-card">
+                <div class="kpi-label">Mais Baratos no Seven</div>
+                <div class="kpi-value seven-better" id="sevenMelhor">0</div>
+            </div>
+            <div class="card kpi-card">
+                <div class="kpi-label">Mais Baratos no Market4You</div>
+                <div class="kpi-value market-better" id="marketMelhor">0</div>
+            </div>
+            <div class="card kpi-card">
+                <div class="kpi-label">Economia Total Possível</div>
+                <div class="kpi-value economia" id="economiaTotal">R$ 0</div>
+            </div>
+        </div>
+        
+        <div class="dashboard-grid">
+            <div class="card" style="grid-column: span 2;">
+                <h3>Top 10 Produtos com Maior Economia no Seven</h3>
+                <div class="chart-container">
+                    <canvas id="topEconomiaChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Comparativo por Categoria</h3>
+                <div class="chart-container">
+                    <canvas id="categoriaChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>Comparativo de Preços por Produto</h3>
+            <div class="chart-container" style="height: 400px;">
+                <canvas id="comparativoChart"></canvas>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h3>Tabela Detalhada de Produtos</h3>
+            <div class="table-container">
+                <table id="productTable">
+                    <thead>
+                        <tr>
+                            <th>Categoria</th>
+                            <th>Produto</th>
+                            <th>Market4You</th>
+                            <th>Seven</th>
+                            <th>Diferença</th>
+                            <th>Melhor Preço</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <div id="loadingMessage" class="loading">Carregando dados...</div>
+    
+    <script>
+        // Dados incorporados diretamente
+        const dadosIncorporados = [{"categoria":"Categoria","descricao":"Descrição do Produto","precoMarket4You":0,"precoSeven":0,"diferenca":0},{"categoria":"Bebidas","descricao":"Bebida Láctea TODDYNHO Tradicional 200ml","precoMarket4You":5.39,"precoSeven":4.19,"diferenca":1.1999999999999993},{"categoria":"Bebidas","descricao":"Bebida Mista SMIRNOFF ICE Original 275ml","precoMarket4You":13.69,"precoSeven":10.99,"diferenca":2.6999999999999993},{"categoria":"Bebidas","descricao":"Cerveja AMSTEL Lager Sleek Lata 350ml","precoMarket4You":5.69,"precoSeven":4.98,"diferenca":0.7100000000000004},{"categoria":"Bebidas","descricao":"Cerveja BRAHMA Duplo Malte Lata 350ml","precoMarket4You":5.59,"precoSeven":3.99,"diferenca":1.6000000000000005},{"categoria":"Bebidas","descricao":"Cerveja BRAHMA Sleek Lata 350ml","precoMarket4You":5.49,"precoSeven":3.98,"diferenca":1.5100000000000002},{"categoria":"Bebidas","descricao":"Cerveja BUDWEISER Lata 410ml","precoMarket4You":6.99,"precoSeven":5.49,"diferenca":1.5},{"categoria":"Bebidas","descricao":"Cerveja SKOL Lata Sleek 310ml","precoMarket4You":4.99,"precoSeven":3.48,"diferenca":1.5100000000000002},{"categoria":"Bebidas","descricao":"Cerveja SKOL Puro Malte Lata 350ml","precoMarket4You":5.19,"precoSeven":3.74,"diferenca":1.4500000000000002},{"categoria":"Bebidas","descricao":"Refrigerante COCA-COLA Lata 310ml","precoMarket4You":4.39,"precoSeven":3.99,"diferenca":0.40000000000000036},{"categoria":"Bebidas","descricao":"Refrigerante COCA-COLA Sem Açúcar Lata 310ml","precoMarket4You":4.39,"precoSeven":3.99,"diferenca":0.40000000000000036},{"categoria":"Bebidas","descricao":"Refrigerante GUARANÁ ANTARCTICA Lata 350ml","precoMarket4You":4.39,"precoSeven":3.99,"diferenca":0.40000000000000036},{"categoria":"Bebidas","descricao":"Refrigerante H2OH! Limoneto 500ml","precoMarket4You":3.89,"precoSeven":4.99,"diferenca":-1.0999999999999996},{"categoria":"Bebidas","descricao":"Refrigerante H2OH! Limão 500ml","precoMarket4You":3.89,"precoSeven":4.99,"diferenca":-1.0999999999999996},{"categoria":"Bebidas","descricao":"Suco DEL VALLE FRESH Limão 500ml","precoMarket4You":5.19,"precoSeven":3.79,"diferenca":1.4000000000000004},{"categoria":"Bebidas","descricao":"Suco DEL VALLE Mais Manga 1l","precoMarket4You":5.59,"precoSeven":5.79,"diferenca":-0.19999999999999929},{"categoria":"Bebidas","descricao":"Whisky Jack Daniel's Black 375ml","precoMarket4You":87.9,"precoSeven":79.9,"diferenca":8},{"categoria":"Bebidas","descricao":"Vinho Tinto Malbec TORO 750ml","precoMarket4You":44.49,"precoSeven":28.9,"diferenca":15.590000000000003},{"categoria":"Carnes","descricao":"Bacon em fatias Pamplona 150g","precoMarket4You":17.9,"precoSeven":13.99,"diferenca":3.9100000000000001},{"categoria":"Carnes","descricao":"Filé de Peito de Frango Bandeja (Kg)","precoMarket4You":21.9,"precoSeven":17.99,"diferenca":3.9100000000000001},{"categoria":"Carnes","descricao":"Linguiça de Frango Seara 900g","precoMarket4You":18.9,"precoSeven":16.9,"diferenca":2},{"categoria":"Carnes","descricao":"Linguiça Toscana Sadia 500g","precoMarket4You":14.99,"precoSeven":15.9,"diferenca":-0.9099999999999984},{"categoria":"Carnes","descricao":"Hambúrguer Bovino Sadia 672g","precoMarket4You":29.9,"precoSeven":29.9,"diferenca":0},{"categoria":"Carnes","descricao":"Peito de Frango Temperado Sadia 1kg","precoMarket4You":22.9,"precoSeven":23.9,"diferenca":-1},{"categoria":"Congelados","descricao":"Empanado de Frango Perdigão 300g","precoMarket4You":14.49,"precoSeven":10.9,"diferenca":3.5900000000000016},{"categoria":"Congelados","descricao":"Esfiha de Carne O SALGADEIRO - 250g","precoMarket4You":28.9,"precoSeven":13.4,"diferenca":15.5},{"categoria":"Congelados","descricao":"Hambúrguer de Carne Bovino Futuro Burger 230g","precoMarket4You":19.9,"precoSeven":17.9,"diferenca":2},{"categoria":"Congelados","descricao":"Lasanha Bolonhesa Sadia 600g","precoMarket4You":23.9,"precoSeven":21.9,"diferenca":2},{"categoria":"Congelados","descricao":"Pizza Mussarela Sadia 440g","precoMarket4You":18.9,"precoSeven":13.9,"diferenca":5},{"categoria":"Congelados","descricao":"Steak de Frango Seara 100g","precoMarket4You":20.99,"precoSeven":17.9,"diferenca":3.089999999999999},{"categoria":"Doces","descricao":"Barra de Chocolate ao Leite NEUGEBAUER 90g","precoMarket4You":6.99,"precoSeven":5.49,"diferenca":1.5},{"categoria":"Doces","descricao":"Biscoito BONO Recheado Chocolate 126g","precoMarket4You":3.39,"precoSeven":2.49,"diferenca":0.9000000000000004},{"categoria":"Doces","descricao":"Biscoito Club Social Original 144g","precoMarket4You":5.99,"precoSeven":4.59,"diferenca":1.3999999999999995},{"categoria":"Doces","descricao":"Biscoito NEGRESCO 90g","precoMarket4You":3.19,"precoSeven":2.49,"diferenca":0.7000000000000002},{"categoria":"Doces","descricao":"Biscoito OREO Original 90g","precoMarket4You":3.19,"precoSeven":2.49,"diferenca":0.7000000000000002},{"categoria":"Doces","descricao":"Biscoito Passatempo Recheado Chocolate 130g","precoMarket4You":3.69,"precoSeven":2.99,"diferenca":0.6999999999999997},{"categoria":"Doces","descricao":"Biscoito Recheado TRAKINAS Chocolate 126g","precoMarket4You":3.39,"precoSeven":2.69,"diferenca":0.6999999999999997},{"categoria":"Doces","descricao":"Biscoito Wafer BAUDUCCO Chocolate 140g","precoMarket4You":3.69,"precoSeven":3.29,"diferenca":0.40000000000000036},{"categoria":"Doces","descricao":"Chocolate BIS ao Leite 126g","precoMarket4You":8.79,"precoSeven":7.99,"diferenca":0.7999999999999998},{"categoria":"Doces","descricao":"Chocolate KitKat 41.5g","precoMarket4You":3.99,"precoSeven":3.29,"diferenca":0.6999999999999997},{"categoria":"Doces","descricao":"Chocolate LACTA Diamante Negro 90g","precoMarket4You":8.49,"precoSeven":6.49,"diferenca":2},{"categoria":"Doces","descricao":"Chocolate MILKA Oreo 100g","precoMarket4You":9.99,"precoSeven":8.49,"diferenca":1.5},{"categoria":"Doces","descricao":"Chocolate Snickers 45g","precoMarket4You":3.49,"precoSeven":2.99,"diferenca":0.5},{"categoria":"Doces","descricao":"Cookie BAUDUCCO Chocolate 100g","precoMarket4You":4.99,"precoSeven":3.79,"diferenca":1.2000000000000002},{"categoria":"Doces","descricao":"Cookie Toddy Baunilha com Gotas de Chocolate 133g","precoMarket4You":5.49,"precoSeven":3.99,"diferenca":1.5},{"categoria":"Doces","descricao":"Goma de Mascar TRIDENT Fresh 8g","precoMarket4You":2.99,"precoSeven":2.39,"diferenca":0.5999999999999996},{"categoria":"Higiene e Beleza","descricao":"Creme Dental COLGATE Tripla Ação 90g","precoMarket4You":3.99,"precoSeven":2.99,"diferenca":1},{"categoria":"Higiene e Beleza","descricao":"Desodorante Aerosol DOVE Original 150ml","precoMarket4You":16.9,"precoSeven":13.9,"diferenca":3},{"categoria":"Higiene e Beleza","descricao":"Desodorante Roll-on NIVEA Invisible Black & White 50ml","precoMarket4You":13.9,"precoSeven":11.9,"diferenca":2},{"categoria":"Higiene e Beleza","descricao":"Sabonete LUX Botanicals Flor de Cerejeira 85g","precoMarket4You":2.99,"precoSeven":2.49,"diferenca":0.5},{"categoria":"Higiene e Beleza","descricao":"Shampoo HEAD & SHOULDERS Anticaspa 200ml","precoMarket4You":19.9,"precoSeven":16.9,"diferenca":3},{"categoria":"Laticínios","descricao":"Bebida Láctea YoPRO Morango 250ml","precoMarket4You":7.49,"precoSeven":5.99,"diferenca":1.5},{"categoria":"Laticínios","descricao":"Iogurte ACTIVIA Líquido Ameixa 170g","precoMarket4You":3.49,"precoSeven":2.79,"diferenca":0.6999999999999997},{"categoria":"Laticínios","descricao":"Iogurte Grego DANONE Frutas Vermelhas 90g","precoMarket4You":3.99,"precoSeven":3.19,"diferenca":0.7999999999999998},{"categoria":"Laticínios","descricao":"Iogurte Líquido NINHO Morango 180g","precoMarket4You":3.49,"precoSeven":2.79,"diferenca":0.6999999999999997},{"categoria":"Laticínios","descricao":"Leite Condensado MOÇA 395g","precoMarket4You":9.49,"precoSeven":6.99,"diferenca":2.5},{"categoria":"Laticínios","descricao":"Leite Fermentado YAKULT 480g","precoMarket4You":8.99,"precoSeven":7.99,"diferenca":1},{"categoria":"Laticínios","descricao":"Leite ITALAC Integral 1L","precoMarket4You":5.99,"precoSeven":5.19,"diferenca":0.7999999999999998},{"categoria":"Laticínios","descricao":"Manteiga AVIAÇÃO Com Sal 200g","precoMarket4You":14.9,"precoSeven":12.9,"diferenca":2},{"categoria":"Laticínios","descricao":"Queijo Mussarela TIROLEZ Fatiado 150g","precoMarket4You":9.49,"precoSeven":8.49,"diferenca":1},{"categoria":"Laticínios","descricao":"Queijo Prato PRESIDENTE Fatiado 150g","precoMarket4You":10.9,"precoSeven":8.9,"diferenca":2},{"categoria":"Laticínios","descricao":"Requeijão CATUPIRY Original 220g","precoMarket4You":10.9,"precoSeven":9.9,"diferenca":1},{"categoria":"Limpeza","descricao":"Amaciante DOWNY Concentrado 450ml","precoMarket4You":10.9,"precoSeven":8.99,"diferenca":1.9100000000000001},{"categoria":"Limpeza","descricao":"Desinfetante PINHO SOL Lavanda 500ml","precoMarket4You":6.99,"precoSeven":5.79,"diferenca":1.2000000000000002},{"categoria":"Limpeza","descricao":"Detergente YPÊ Neutro 500ml","precoMarket4You":2.79,"precoSeven":2.29,"diferenca":0.5},{"categoria":"Limpeza","descricao":"Esponja BOMBRIL Limpeza Pesada 3un","precoMarket4You":3.99,"precoSeven":3.29,"diferenca":0.6999999999999997},{"categoria":"Limpeza","descricao":"Limpador Multiuso VEJA 500ml","precoMarket4You":5.49,"precoSeven":4.49,"diferenca":1},{"categoria":"Limpeza","descricao":"Papel Higiênico NEVE Folha Dupla 12 rolos","precoMarket4You":24.9,"precoSeven":19.9,"diferenca":5},{"categoria":"Limpeza","descricao":"Sabão em Pó OMO Lavagem Perfeita 800g","precoMarket4You":13.9,"precoSeven":10.9,"diferenca":3},{"categoria":"Mercearia","descricao":"Achocolatado em Pó NESCAU 2.0 400g","precoMarket4You":12.9,"precoSeven":9.99,"diferenca":2.9100000000000001},{"categoria":"Mercearia","descricao":"Açúcar UNIÃO Cristal 1kg","precoMarket4You":5.49,"precoSeven":4.99,"diferenca":0.5},{"categoria":"Mercearia","descricao":"Arroz CAMIL Tipo 1 1kg","precoMarket4You":6.99,"precoSeven":5.99,"diferenca":1},{"categoria":"Mercearia","descricao":"Arroz TIO JOÃO Integral 1kg","precoMarket4You":9.49,"precoSeven":7.99,"diferenca":1.5},{"categoria":"Mercearia","descricao":"Azeite GALLO Extra Virgem 500ml","precoMarket4You":34.9,"precoSeven":29.9,"diferenca":5},{"categoria":"Mercearia","descricao":"Batata Palha YOKI 120g","precoMarket4You":7.99,"precoSeven":6.49,"diferenca":1.5},{"categoria":"Mercearia","descricao":"Café 3 CORAÇÕES Tradicional 250g","precoMarket4You":10.9,"precoSeven":8.99,"diferenca":1.9100000000000001},{"categoria":"Mercearia","descricao":"Café PILÃO Torrado e Moído 250g","precoMarket4You":11.9,"precoSeven":9.49,"diferenca":2.4100000000000001},{"categoria":"Mercearia","descricao":"Cappuccino MELITTA Tradicional 200g","precoMarket4You":35.9,"precoSeven":16.7,"diferenca":19.2},{"categoria":"Mercearia","descricao":"Cereal Matinal NESCAU Cereal 230g","precoMarket4You":10.9,"precoSeven":8.49,"diferenca":2.4100000000000001},{"categoria":"Mercearia","descricao":"Cereal NESFIT 230g","precoMarket4You":11.9,"precoSeven":9.49,"diferenca":2.4100000000000001},{"categoria":"Mercearia","descricao":"Chá Matte LEÃO Natural 40g","precoMarket4You":5.49,"precoSeven":4.49,"diferenca":1},{"categoria":"Mercearia","descricao":"Creme de Leite NESTLÉ 200g","precoMarket4You":4.49,"precoSeven":3.49,"diferenca":1},{"categoria":"Mercearia","descricao":"Ervilha em Conserva QUERO 200g","precoMarket4You":3.99,"precoSeven":3.19,"diferenca":0.7999999999999998},{"categoria":"Mercearia","descricao":"Extrato de Tomate ELEFANTE 340g","precoMarket4You":5.99,"precoSeven":4.79,"diferenca":1.2000000000000002},{"categoria":"Mercearia","descricao":"Farinha de Trigo DONA BENTA Tipo 1 1kg","precoMarket4You":6.49,"precoSeven":5.49,"diferenca":1},{"categoria":"Mercearia","descricao":"Farinha de Trigo SOL Tipo 1 1kg","precoMarket4You":6.49,"precoSeven":5.49,"diferenca":1},{"categoria":"Mercearia","descricao":"Farofa Pronta YOKI Tradicional 250g","precoMarket4You":6.49,"precoSeven":5.19,"diferenca":1.3000000000000007},{"categoria":"Mercearia","descricao":"Feijão CAMIL Carioca Tipo 1 1kg","precoMarket4You":9.49,"precoSeven":7.99,"diferenca":1.5},{"categoria":"Mercearia","descricao":"Feijão KICALDO Preto 1kg","precoMarket4You":8.99,"precoSeven":7.49,"diferenca":1.5},{"categoria":"Mercearia","descricao":"Geleia LINEA Blueberry Zero Adição de Açúcar 230g","precoMarket4You":20.99,"precoSeven":7.7,"diferenca":13.29},{"categoria":"Mercearia","descricao":"Gelatina DR. OETKER Morango 25g","precoMarket4You":2.49,"precoSeven":1.99,"diferenca":0.5},{"categoria":"Mercearia","descricao":"Ketchup HEINZ 397g","precoMarket4You":11.9,"precoSeven":9.49,"diferenca":2.4100000000000001},{"categoria":"Mercearia","descricao":"Leite de Coco SOCOCO 200ml","precoMarket4You":5.99,"precoSeven":4.79,"diferenca":1.2000000000000002},{"categoria":"Mercearia","descricao":"Macarrão BARILLA Penne 500g","precoMarket4You":9.49,"precoSeven":7.49,"diferenca":2},{"categoria":"Mercearia","descricao":"Macarrão Instantâneo CUP NOODLES Galinha 69g","precoMarket4You":4.49,"precoSeven":3.49,"diferenca":1},{"categoria":"Mercearia","descricao":"Macarrão Instantâneo NISSIN Lámen Galinha 85g","precoMarket4You":3.49,"precoSeven":2.79,"diferenca":0.6999999999999997},{"categoria":"Mercearia","descricao":"Macarrão RENATA Espaguete 500g","precoMarket4You":5.49,"precoSeven":4.39,"diferenca":1.0999999999999996},{"categoria":"Mercearia","descricao":"Maionese HELLMANN'S Tradicional 250g","precoMarket4You":6.99,"precoSeven":5.49,"diferenca":1.5},{"categoria":"Mercearia","descricao":"Milho Verde em Conserva QUERO 200g","precoMarket4You":3.99,"precoSeven":3.19,"diferenca":0.7999999999999998},{"categoria":"Mercearia","descricao":"Molho de Tomate POMAROLA Tradicional 340g","precoMarket4You":3.49,"precoSeven":2.79,"diferenca":0.6999999999999997},{"categoria":"Mercearia","descricao":"Molho de Tomate QUERO Tradicional 340g","precoMarket4You":3.49,"precoSeven":2.79,"diferenca":0.6999999999999997},{"categoria":"Mercearia","descricao":"Mostarda HEINZ 255g","precoMarket4You":23.9,"precoSeven":9.6,"diferenca":14.3},{"categoria":"Mercearia","descricao":"Óleo de Soja LIZA 900ml","precoMarket4You":8.49,"precoSeven":6.99,"diferenca":1.5},{"categoria":"Mercearia","descricao":"Óleo de Soja SOYA 900ml","precoMarket4You":8.49,"precoSeven":6.99,"diferenca":1.5},{"categoria":"Mercearia","descricao":"Pipoca para Micro-ondas YOKI Manteiga 100g","precoMarket4You":4.99,"precoSeven":3.99,"diferenca":1},{"categoria":"Mercearia","descricao":"Sal CISNE Refinado 1kg","precoMarket4You":2.99,"precoSeven":2.49,"diferenca":0.5},{"categoria":"Mercearia","descricao":"Salgadinho CHEETOS Onda Requeijão 140g","precoMarket4You":10.9,"precoSeven":8.99,"diferenca":1.9100000000000001},{"categoria":"Mercearia","descricao":"Salgadinho DORITOS Queijo Nacho 140g","precoMarket4You":10.9,"precoSeven":8.99,"diferenca":1.9100000000000001},{"categoria":"Mercearia","descricao":"Salgadinho FANDANGOS Presunto 140g","precoMarket4You":9.99,"precoSeven":7.99,"diferenca":2},{"categoria":"Mercearia","descricao":"Salgadinho PRINGLES Original 114g","precoMarket4You":14.9,"precoSeven":11.9,"diferenca":3},{"categoria":"Mercearia","descricao":"Salgadinho RUFFLES Original 135g","precoMarket4You":10.9,"precoSeven":8.99,"diferenca":1.9100000000000001},{"categoria":"Mercearia","descricao":"Tempero SAZÓN Amarelo 60g","precoMarket4You":5.49,"precoSeven":4.39,"diferenca":1.0999999999999996},{"categoria":"Mercearia","descricao":"Vinagre CASTELO Álcool 750ml","precoMarket4You":3.49,"precoSeven":2.79,"diferenca":0.6999999999999997},{"categoria":"Padaria","descricao":"Bisnaguinha PULLMAN 300g","precoMarket4You":7.49,"precoSeven":5.99,"diferenca":1.5},{"categoria":"Padaria","descricao":"Pão de Forma PULLMAN Tradicional 400g","precoMarket4You":7.99,"precoSeven":6.49,"diferenca":1.5},{"categoria":"Padaria","descricao":"Pão de Hambúrguer PULLMAN 200g","precoMarket4You":6.99,"precoSeven":5.49,"diferenca":1.5},{"categoria":"Padaria","descricao":"Pão de Hot Dog PULLMAN 200g","precoMarket4You":6.99,"precoSeven":5.49,"diferenca":1.5},{"categoria":"Padaria","descricao":"Torrada BAUDUCCO Integral 160g","precoMarket4You":5.99,"precoSeven":4.79,"diferenca":1.2000000000000002},{"categoria":"Padaria","descricao":"Torrada MARILAN Tradicional 160g","precoMarket4You":5.49,"precoSeven":4.39,"diferenca":1.0999999999999996},{"categoria":"Pet","descricao":"Petisco para Cães PEDIGREE Dentastix 7 unidades","precoMarket4You":19.9,"precoSeven":16.9,"diferenca":3},{"categoria":"Pet","descricao":"Ração para Cães PEDIGREE Adultos Carne 1kg","precoMarket4You":16.9,"precoSeven":13.9,"diferenca":3},{"categoria":"Pet","descricao":"Ração para Gatos WHISKAS Adultos Carne 1kg","precoMarket4You":19.9,"precoSeven":16.9,"diferenca":3},{"categoria":"Produtos Naturais","descricao":"Amendoim Torrado Sem Pele DORI 150g","precoMarket4You":8.99,"precoSeven":7.19,"diferenca":1.7999999999999998},{"categoria":"Produtos Naturais","descricao":"Aveia em Flocos QUAKER 165g","precoMarket4You":5.99,"precoSeven":4.79,"diferenca":1.2000000000000002},{"categoria":"Produtos Naturais","descricao":"Barra de Cereal NUTRY Castanha 22g","precoMarket4You":2.49,"precoSeven":1.99,"diferenca":0.5},{"categoria":"Produtos Naturais","descricao":"Castanha de Caju Torrada e Salgada 100g","precoMarket4You":12.9,"precoSeven":9.99,"diferenca":2.9100000000000001},{"categoria":"Produtos Naturais","descricao":"Chia em Grãos 100g","precoMarket4You":9.99,"precoSeven":7.99,"diferenca":2},{"categoria":"Produtos Naturais","descricao":"Granola Tradicional 250g","precoMarket4You":10.9,"precoSeven":8.99,"diferenca":1.9100000000000001},{"categoria":"Produtos Naturais","descricao":"Linhaça Dourada Moída 200g","precoMarket4You":8.99,"precoSeven":7.19,"diferenca":1.7999999999999998},{"categoria":"Produtos Naturais","descricao":"Mix de Nuts 150g","precoMarket4You":18.9,"precoSeven":14.9,"diferenca":4},{"categoria":"Produtos Naturais","descricao":"Quinoa em Grãos 200g","precoMarket4You":14.9,"precoSeven":11.9,"diferenca":3},{"categoria":"Produtos Naturais","descricao":"Suco Integral de Uva Aurora 1,5L","precoMarket4You":19.9,"precoSeven":16.9,"diferenca":3},{"categoria":"Snacks","descricao":"Amendoim Japonês ELMA CHIPS 145g","precoMarket4You":8.99,"precoSeven":7.19,"diferenca":1.7999999999999998},{"categoria":"Snacks","descricao":"Batata Chips LAYS Original 145g","precoMarket4You":11.9,"precoSeven":9.49,"diferenca":2.4100000000000001},{"categoria":"Snacks","descricao":"Biscoito Polvilho GLOBO 100g","precoMarket4You":6.99,"precoSeven":5.59,"diferenca":1.3999999999999995},{"categoria":"Snacks","descricao":"Cebolitos ELMA CHIPS 60g","precoMarket4You":4.99,"precoSeven":3.99,"diferenca":1},{"categoria":"Snacks","descricao":"Pipoca Doce YOKI Caramelo 150g","precoMarket4You":8.99,"precoSeven":7.19,"diferenca":1.7999999999999998},{"categoria":"Snacks","descricao":"Pipoca Salgada YOKI 150g","precoMarket4You":7.99,"precoSeven":6.39,"diferenca":1.6000000000000005},{"categoria":"Snacks","descricao":"Torrada Integral WICKBOLD 140g","precoMarket4You":5.99,"precoSeven":4.79,"diferenca":1.2000000000000002}];
+        
+        let allData = [];
+        let filteredData = [];
+        let charts = {};
+        
+        async function loadData() {
+            try {
+                // Primeiro tentar carregar do arquivo se existir
+                try {
+                    const response = await window.fs.readFile('Comparativo de valores.xlsx');
+                    const workbook = XLSX.read(response);
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const rawData = XLSX.utils.sheet_to_json(firstSheet, { header: 1 });
+                    
+                    // Processar dados do arquivo
+                    allData = [];
+                    for (let i = 2; i < rawData.length; i++) {
+                        const row = rawData[i];
+                        if (row && row[0]) {
+                            const precoMarket = parseFloat(row[2]) || 0;
+                            const precoSeven = parseFloat(row[3]) || 0;
+                            allData.push({
+                                categoria: row[0],
+                                descricao: row[1],
+                                precoMarket4You: precoMarket,
+                                precoSeven: precoSeven,
+                                diferenca: precoMarket - precoSeven
+                            });
+                        }
+                    }
+                } catch (fileError) {
+                    // Se não conseguir ler o arquivo, usar dados incorporados
+                    console.log('Usando dados incorporados');
+                    allData = dadosIncorporados.filter(item => item.categoria !== "Categoria");
+                }
+                
+                filteredData = [...allData];
+                document.getElementById('loadingMessage').style.display = 'none';
+                
+                populateCategoryFilter();
+                updateDashboard();
+                
+            } catch (error) {
+                console.error('Erro ao carregar dados:', error);
+                // Usar dados incorporados como fallback
+                allData = dadosIncorporados.filter(item => item.categoria !== "Categoria");
+                filteredData = [...allData];
+                document.getElementById('loadingMessage').style.display = 'none';
+                
+                populateCategoryFilter();
+                updateDashboard();
+            }
+        }
+        
+        function populateCategoryFilter() {
+            const categories = [...new Set(allData.map(p => p.categoria))].sort();
+            const select = document.getElementById('categoryFilter');
+            categories.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                option.textContent = cat;
+                select.appendChild(option);
+            });
+        }
+        
+        function updateDashboard() {
+            updateKPIs();
+            updateTopEconomiaChart();
+            updateCategoriaChart();
+            updateComparativoChart();
+            updateTable();
+        }
+        
+        function updateKPIs() {
+            const totalProdutos = filteredData.length;
+            const sevenMelhor = filteredData.filter(p => p.precoSeven < p.precoMarket4You).length;
+            const marketMelhor = filteredData.filter(p => p.precoMarket4You < p.precoSeven).length;
+            const economiaTotal = filteredData
+                .filter(p => p.diferenca > 0)
+                .reduce((sum, p) => sum + p.diferenca, 0);
+            
+            document.getElementById('totalProdutos').textContent = totalProdutos;
+            document.getElementById('sevenMelhor').textContent = sevenMelhor;
+            document.getElementById('marketMelhor').textContent = marketMelhor;
+            document.getElementById('economiaTotal').textContent = `R$ ${economiaTotal.toFixed(2)}`;
+        }
+        
+        function updateTopEconomiaChart() {
+            const topEconomias = filteredData
+                .filter(p => p.diferenca > 0)
+                .sort((a, b) => b.diferenca - a.diferenca)
+                .slice(0, 10);
+            
+            const ctx = document.getElementById('topEconomiaChart').getContext('2d');
+            
+            if (charts.topEconomia) {
+                charts.topEconomia.destroy();
+            }
+            
+            charts.topEconomia = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: topEconomias.map(p => p.descricao.substring(0, 30) + '...'),
+                    datasets: [{
+                        label: 'Economia (R$)',
+                        data: topEconomias.map(p => p.diferenca),
+                        backgroundColor: 'rgba(34, 197, 94, 0.8)',
+                        borderColor: 'rgba(34, 197, 94, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return `Economia: R$ ${context.parsed.x.toFixed(2)}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return 'R$ ' + value.toFixed(2);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateCategoriaChart() {
+            const categorias = {};
+            filteredData.forEach(p => {
+                if (!categorias[p.categoria]) {
+                    categorias[p.categoria] = {
+                        sevenMelhor: 0,
+                        marketMelhor: 0,
+                        igual: 0
+                    };
+                }
+                
+                if (p.precoSeven < p.precoMarket4You) {
+                    categorias[p.categoria].sevenMelhor++;
+                } else if (p.precoMarket4You < p.precoSeven) {
+                    categorias[p.categoria].marketMelhor++;
+                } else {
+                    categorias[p.categoria].igual++;
+                }
+            });
+            
+            const ctx = document.getElementById('categoriaChart').getContext('2d');
+            
+            if (charts.categoria) {
+                charts.categoria.destroy();
+            }
+            
+            charts.categoria = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(categorias),
+                    datasets: [{
+                        data: Object.values(categorias).map(c => c.sevenMelhor),
+                        backgroundColor: [
+                            '#22c55e', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6',
+                            '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16',
+                            '#06b6d4', '#a855f7'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'bottom',
+                            labels: {
+                                padding: 10,
+                                font: {
+                                    size: 11
+                                }
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const cat = context.label;
+                                    const data = categorias[cat];
+                                    return `Seven: ${data.sevenMelhor} | Market: ${data.marketMelhor}`;
+                                }
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Produtos mais baratos no Seven por categoria'
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateComparativoChart() {
+            const produtosAmostra = filteredData
+                .sort((a, b) => b.diferenca - a.diferenca)
+                .slice(0, 20);
+            
+            const ctx = document.getElementById('comparativoChart').getContext('2d');
+            
+            if (charts.comparativo) {
+                charts.comparativo.destroy();
+            }
+            
+            charts.comparativo = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: produtosAmostra.map(p => p.descricao.substring(0, 25) + '...'),
+                    datasets: [{
+                        label: 'Market4You',
+                        data: produtosAmostra.map(p => p.precoMarket4You),
+                        backgroundColor: 'rgba(239, 68, 68, 0.7)',
+                        borderColor: 'rgba(239, 68, 68, 1)',
+                        borderWidth: 1
+                    }, {
+                        label: 'Seven',
+                        data: produtosAmostra.map(p => p.precoSeven),
+                        backgroundColor: 'rgba(34, 197, 94, 0.7)',
+                        borderColor: 'rgba(34, 197, 94, 1)',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            position: 'top'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                afterLabel: function(context) {
+                                    const index = context.dataIndex;
+                                    const produto = produtosAmostra[index];
+                                    const diff = produto.diferenca;
+                                    if (diff > 0) {
+                                        return `Seven é R$ ${diff.toFixed(2)} mais barato`;
+                                    } else if (diff < 0) {
+                                        return `Market4You é R$ ${Math.abs(diff).toFixed(2)} mais barato`;
+                                    }
+                                    return 'Mesmo preço';
+                                }
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Top 20 produtos com maior diferença de preço'
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                autoSkip: false,
+                                maxRotation: 45,
+                                minRotation: 45,
+                                font: {
+                                    size: 10
+                                }
+                            }
+                        },
+                        y: {
+                            beginAtZero: true,
+                            ticks: {
+                                callback: function(value) {
+                                    return 'R$ ' + value.toFixed(2);
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateTable() {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+            
+            const sortedData = [...filteredData].sort((a, b) => b.diferenca - a.diferenca);
+            
+            sortedData.forEach(produto => {
+                const row = document.createElement('tr');
+                
+                let melhorPreco = '';
+                if (produto.precoSeven < produto.precoMarket4You) {
+                    melhorPreco = '<span class="badge badge-seven">Seven</span>';
+                    row.classList.add('highlight-economia');
+                } else if (produto.precoMarket4You < produto.precoSeven) {
+                    melhorPreco = '<span class="badge badge-market">Market4You</span>';
+                } else {
+                    melhorPreco = '<span class="badge">Igual</span>';
+                }
+                
+                row.innerHTML = `
+                    <td>${produto.categoria}</td>
+                    <td>${produto.descricao}</td>
+                    <td>R$ ${produto.precoMarket4You.toFixed(2)}</td>
+                    <td>R$ ${produto.precoSeven.toFixed(2)}</td>
+                    <td style="color: ${produto.diferenca > 0 ? '#15803d' : produto.diferenca < 0 ? '#dc2626' : '#666'}">
+                        ${produto.diferenca > 0 ? '+' : ''}R$ ${produto.diferenca.toFixed(2)}
+                    </td>
+                    <td>${melhorPreco}</td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+        }
+        
+        // Event Listeners
+        document.getElementById('categoryFilter').addEventListener('change', function(e) {
+            filterData();
+        });
+        
+        document.getElementById('searchFilter').addEventListener('input', function(e) {
+            filterData();
+        });
+        
+        document.getElementById('priceFilter').addEventListener('change', function(e) {
+            filterData();
+        });
+        
+        function filterData() {
+            const category = document.getElementById('categoryFilter').value;
+            const search = document.getElementById('searchFilter').value.toLowerCase();
+            const priceFilter = document.getElementById('priceFilter').value;
+            
+            filteredData = allData.filter(produto => {
+                let pass = true;
+                
+                if (category && produto.categoria !== category) {
+                    pass = false;
+                }
+                
+                if (search && !produto.descricao.toLowerCase().includes(search)) {
+                    pass = false;
+                }
+                
+                if (priceFilter) {
+                    if (priceFilter === 'seven' && !(produto.precoSeven < produto.precoMarket4You)) {
+                        pass = false;
+                    } else if (priceFilter === 'market' && !(produto.precoMarket4You < produto.precoSeven)) {
+                        pass = false;
+                    } else if (priceFilter === 'igual' && produto.precoMarket4You !== produto.precoSeven) {
+                        pass = false;
+                    }
+                }
+                
+                return pass;
+            });
+            
+            updateDashboard();
+        }
+        
+        // Inicializar
+        loadData();
+    </script>
+</body>
+</html>
